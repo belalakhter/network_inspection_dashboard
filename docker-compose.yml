@@ -1,0 +1,16 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: network-analysis:latest
+    ports:
+      - "4000:4000"
+    environment:
+      FLOW_BUFFER_WINDOW_MINUTES: "30"
+      FLOW_CAPTURE_INTERVAL_SECONDS: "300"
+      MODEL_RETRAIN_INTERVAL_SECONDS: "1800"
+      MODEL_RETRAIN_EPOCHS: "5"
+      FLOW_BOOTSTRAP_COUNT: "12"
+      FLOW_COLLECTOR_MODE: "synthetic"
+      FLOW_CAPTURE_SOURCE: "eth0"

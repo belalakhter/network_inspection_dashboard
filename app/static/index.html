@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Continuous Learning IDS</title>
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --panel: #fffdf9;
+      --ink: #1f2a2e;
+      --accent: #0b6e4f;
+      --warn: #d17a22;
+      --danger: #b8392e;
+      --muted: #6c757d;
+      --border: #d9d1c5;
+    }
+
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(11, 110, 79, 0.10), transparent 35%),
+        linear-gradient(180deg, #f7f3ec 0%, var(--bg) 100%);
+      color: var(--ink);
+    }
+
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+
+    h1 {
+      font-family: "Space Grotesk", "Segoe UI", sans-serif;
+      font-size: clamp(2rem, 4vw, 3rem);
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      margin-bottom: 28px;
+    }
+
+    .grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: 0 10px 30px rgba(35, 42, 46, 0.06);
+    }
+
+    .metric {
+      font-size: 2rem;
+      font-weight: 700;
+      margin: 10px 0 4px;
+    }
+
+    .label {
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 0.8rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.95rem;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    .green { background: rgba(11, 110, 79, 0.12); color: var(--accent); }
+    .amber { background: rgba(209, 122, 34, 0.12); color: var(--warn); }
+    .red { background: rgba(184, 57, 46, 0.12); color: var(--danger); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Continuous Learning IDS</h1>
+    <p class="subtitle">FastAPI base service with a rolling flow buffer, anomaly scoring, and retraining telemetry.</p>
+
+    <section class="grid">
+      <article class="panel">
+        <div class="label">Threat Score</div>
+        <div class="metric" id="threat-score">0</div>
+        <div id="health-message" class="pill green">Booting</div>
+      </article>
+      <article class="panel">
+        <div class="label">Active Connections</div>
+        <div class="metric" id="active-connections">0</div>
+        <div id="top-applications">Apps: -</div>
+      </article>
+      <article class="panel">
+        <div class="label">Inbound / Outbound Bytes</div>
+        <div class="metric" id="traffic-volume">0 / 0</div>
+        <div id="collector-mode">Collector: synthetic</div>
+      </article>
+      <article class="panel">
+        <div class="label">Model Version</div>
+        <div class="metric" id="model-version">0</div>
+        <div id="training-summary">No training yet</div>
+      </article>
+    </section>
+
+    <section class="panel" style="margin-top: 16px;">
+      <div class="label">Suspicious Connections</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Source</th>
+            <th>Destination</th>
+            <th>App</th>
+            <th>Score</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody id="suspicious-rows">
+          <tr><td colspan="6">Waiting for traffic...</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    function scoreClass(score) {
+      if (score >= 60) return "red";
+      if (score >= 30) return "amber";
+      return "green";
+    }
+
+    async function refresh() {
+      const response = await fetch("/api/dashboard");
+      const data = await response.json();
+      const summary = data.summary;
+      const training = data.training_status;
+
+      document.getElementById("threat-score").textContent = summary.threat_score.toFixed(1);
+      const pill = document.getElementById("health-message");
+      pill.textContent = summary.health_message;
+      pill.className = `pill ${scoreClass(summary.threat_score)}`;
+
+      document.getElementById("active-connections").textContent = summary.active_connections;
+      document.getElementById("top-applications").textContent =
+        `Apps: ${summary.top_applications.join(", ") || "-"}`;
+      document.getElementById("traffic-volume").textContent =
+        `${summary.inbound_bytes} / ${summary.outbound_bytes}`;
+      document.getElementById("collector-mode").textContent =
+        `Collector: ${training.collector_mode}`;
+      document.getElementById("model-version").textContent = training.model_version;
+      document.getElementById("training-summary").textContent =
+        training.last_trained_at
+          ? `Last loss ${training.latest_loss.toFixed(4)} • retrain in ${training.next_retrain_in_seconds}s`
+          : `Awaiting enough flows • retrain in ${training.next_retrain_in_seconds}s`;
+
+      const rows = document.getElementById("suspicious-rows");
+      if (!data.suspicious_connections.length) {
+        rows.innerHTML = "<tr><td colspan='6'>No suspicious flows in the latest sample.</td></tr>";
+        return;
+      }
+
+      rows.innerHTML = data.suspicious_connections.map((flow) => `
+        <tr>
+          <td>${new Date(flow.timestamp).toLocaleTimeString()}</td>
+          <td>${flow.src_ip}</td>
+          <td>${flow.dst_ip}</td>
+          <td>${flow.application}</td>
+          <td>${flow.anomaly_score.toFixed(3)}</td>
+          <td>${flow.reason}</td>
+        </tr>
+      `).join("");
+    }
+
+    refresh();
+    setInterval(refresh, 5000);
+  </script>
+</body>
+</html>
